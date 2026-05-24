@@ -10,7 +10,7 @@
         android:roundIcon="@mipmap/prefix_round"
         android:label="PrefixBlocker"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.DayNight">
+        android:theme="@style/Theme.PrefixBlocker">
 
         <activity
             android:name=".MainActivity"
