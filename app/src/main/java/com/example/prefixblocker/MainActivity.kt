@@ -40,6 +40,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.CallLog
 import android.provider.ContactsContract
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 
 // ---------------- DATA ----------------
 
@@ -128,13 +130,26 @@ fun PrefixBlockerApp(context: Context) {
 
     val storage = remember { PrefixStorage(context) }
 
-    val prefixes by storage.prefixesFlow.collectAsState(initial = emptySet())
+    val prefixes by storage.prefixesFlow.collectAsState(initial = null)
 
     var text by remember { mutableStateOf("") }
 
     var searchText by remember { mutableStateOf("") }
 
     var searchVisible by remember { mutableStateOf(false) }
+
+    var sortDescending by remember { mutableStateOf(true) }
+
+    var sortMode by remember {
+        mutableStateOf("recent")
+    }
+
+    var sortMenuExpanded by remember {
+        mutableStateOf(false)
+    }
+
+
+    var addExpanded by remember { mutableStateOf(true) }
 
     var showCallDialog by remember { mutableStateOf(false) }
 
@@ -150,6 +165,10 @@ fun PrefixBlockerApp(context: Context) {
 
     val snackbarHostState = remember {
         SnackbarHostState()
+    }
+
+    var attemptsMap by remember {
+        mutableStateOf<Map<String, Int>>(emptyMap())
     }
 
     val scope = rememberCoroutineScope()
@@ -216,6 +235,64 @@ fun PrefixBlockerApp(context: Context) {
 
         recentCalls = callsMap.values.toList()
     }
+
+    fun loadAttempts() {
+
+        if (
+            ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_CALL_LOG
+            ) != PackageManager.PERMISSION_GRANTED
+        ) return
+
+        val map = mutableMapOf<String, Int>()
+
+        val cursor = context.contentResolver.query(
+            CallLog.Calls.CONTENT_URI,
+            arrayOf(CallLog.Calls.NUMBER),
+            null,
+            null,
+            "${CallLog.Calls.DATE} DESC"
+        )
+
+        cursor?.use {
+
+            val idx = it.getColumnIndex(CallLog.Calls.NUMBER)
+
+            while (it.moveToNext()) {
+
+                var number =
+                    it.getString(idx)
+                        ?.filter { c -> c.isDigit() }
+                        ?: continue
+
+                // rimuove prefissi internazionali
+                if (number.startsWith("39") && number.length > 10) {
+                    number = number.removePrefix("39")
+                }
+
+                if (number.startsWith("00")) {
+                    number = number.drop(2)
+                }
+
+                (prefixes ?: emptySet()).forEach { prefix ->
+
+                    if (number.startsWith(prefix)) {
+
+                        map[prefix] =
+                            (map[prefix] ?: 0) + 1
+                    }
+                }
+            }
+        }
+
+        attemptsMap = map
+    }
+
+    LaunchedEffect(prefixes) {
+        loadAttempts()
+    }
+
 
     MaterialTheme(colorScheme = colors) {
 
@@ -358,6 +435,7 @@ fun PrefixBlockerApp(context: Context) {
 
                     Spacer(Modifier.height(18.dp))
 
+
                     // INPUT CARD
 
                     Card(
@@ -375,126 +453,158 @@ fun PrefixBlockerApp(context: Context) {
                             Modifier.padding(18.dp)
                         ) {
 
-                            Text(
-                                "Nuovo prefisso",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp,
-                                color =
-                                    if (isDark)
-                                        Color.White
-                                    else
-                                        Color.Black
-                            )
-
-                            Text(
-                                "Esempio: 0422111",
-                                fontSize = 15.sp,
-                                color = Color.Gray
-                            )
-
-                            Spacer(Modifier.height(14.dp))
-
-                            OutlinedTextField(
-
-                                value = text,
-
-                                onValueChange = {
-
-                                    val filtered =
-                                        it.filter { c ->
-                                            c.isDigit()
-                                        }
-
-                                    if (filtered.length <= 12) {
-                                        text = filtered
-                                    }
-                                },
-
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = KeyboardType.Number,
-                                    imeAction = ImeAction.Done
-                                ),
-
-                                singleLine = true,
-
-                                modifier = Modifier.fillMaxWidth(),
-
-                                shape = RoundedCornerShape(22.dp),
-
-                                label = {
-                                    Text("Prefisso")
-                                },
-
-                                trailingIcon = {
-
-                                    IconButton(
-                                        onClick = {
-                                            loadRecentCalls()
-                                            showCallDialog = true
-                                        }
-                                    ) {
-
-                                        Icon(
-                                            Icons.Default.Call,
-                                            null
-                                        )
-                                    }
-                                }
-                            )
-
-                            Spacer(Modifier.height(14.dp))
-
-                            Button(
-
-                                onClick = {
-
-                                    if (text.length >= 3) {
-
-                                        val p = text
-
-                                        scope.launch(Dispatchers.IO) {
-                                            storage.savePrefix(p)
-                                        }
-
-                                        scope.launch {
-
-                                            snackbarHostState.showSnackbar(
-                                                message = "Prefisso $p bloccato",
-                                                duration = SnackbarDuration.Indefinite
-                                            )
-                                        }
-
-                                        scope.launch {
-
-                                            delay(2000)
-
-                                            snackbarHostState
-                                                .currentSnackbarData
-                                                ?.dismiss()
-                                        }
-
-                                        text = ""
-
-                                        keyboardController?.hide()
-                                    }
-                                },
-
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(54.dp),
-
-                                shape = RoundedCornerShape(22.dp)
+                                    .clickable(
+                                        indication = null,
+                                        interactionSource = remember {
+                                            MutableInteractionSource()
+                                        }
+                                    ) {
+                                        addExpanded = !addExpanded
+                                    },
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
 
-                                Text(
-                                    "Aggiungi prefisso",
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                Column {
+
+                                    Text(
+                                        "Nuovo prefisso",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 20.sp,
+                                        color =
+                                            if (isDark)
+                                                Color.White
+                                            else
+                                                Color.Black
+                                    )
+
+                                    Text(
+                                        "Esempio: 0422111",
+                                        fontSize = 14.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+
+                                Icon(
+                                    imageVector =
+                                        if (addExpanded)
+                                            Icons.Default.KeyboardArrowUp
+                                        else
+                                            Icons.Default.KeyboardArrowDown,
+                                    contentDescription = null
                                 )
+                            }
+
+                            if (addExpanded) {
+
+                                Spacer(Modifier.height(18.dp))
+
+                                OutlinedTextField(
+
+                                    value = text,
+
+                                    onValueChange = {
+
+                                        val filtered =
+                                            it.filter { c ->
+                                                c.isDigit()
+                                            }
+
+                                        if (filtered.length <= 12) {
+                                            text = filtered
+                                        }
+                                    },
+
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = KeyboardType.Number,
+                                        imeAction = ImeAction.Done
+                                    ),
+
+                                    singleLine = true,
+
+                                    modifier = Modifier.fillMaxWidth(),
+
+                                    shape = RoundedCornerShape(22.dp),
+
+                                    label = {
+                                        Text("Prefisso")
+                                    },
+
+                                    trailingIcon = {
+
+                                        IconButton(
+                                            onClick = {
+                                                loadRecentCalls()
+                                                showCallDialog = true
+                                            }
+                                        ) {
+
+                                            Icon(
+                                                Icons.Default.Call,
+                                                null
+                                            )
+                                        }
+                                    }
+                                )
+
+                                Spacer(Modifier.height(14.dp))
+
+                                Button(
+
+                                    onClick = {
+
+                                        if (text.length >= 3) {
+
+                                            val p = text
+
+                                            scope.launch(Dispatchers.IO) {
+                                                storage.savePrefix(p)
+                                            }
+
+                                            scope.launch {
+
+                                                snackbarHostState.showSnackbar(
+                                                    message = "Prefisso $p bloccato",
+                                                    duration = SnackbarDuration.Indefinite
+                                                )
+                                            }
+
+                                            scope.launch {
+
+                                                delay(2000)
+
+                                                snackbarHostState
+                                                    .currentSnackbarData
+                                                    ?.dismiss()
+                                            }
+
+                                            text = ""
+
+                                            keyboardController?.hide()
+                                        }
+                                    },
+
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(54.dp),
+
+                                    shape = RoundedCornerShape(22.dp)
+                                ) {
+
+                                    Text(
+                                        "Aggiungi prefisso",
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
                             }
                         }
                     }
+
 
                     Spacer(Modifier.height(20.dp))
 
@@ -515,20 +625,80 @@ fun PrefixBlockerApp(context: Context) {
                                     Color.Black
                         )
 
-                        IconButton(
-                            onClick = {
-                                searchVisible = !searchVisible
+                        Row {
 
-                                if (!searchVisible) {
-                                    searchText = ""
+                            // SEARCH
+
+                            IconButton(
+                                onClick = {
+                                    searchVisible = !searchVisible
+
+                                    if (!searchVisible) {
+                                        searchText = ""
+                                    }
+                                }
+                            ) {
+
+                                Icon(
+                                    Icons.Default.Search,
+                                    null
+                                )
+                            }
+
+                            // SORT
+
+                            Box {
+
+                                IconButton(
+                                    onClick = {
+                                        sortMenuExpanded = true
+                                    }
+                                ) {
+
+                                    Icon(
+                                        Icons.Default.Sort,
+                                        contentDescription = null
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = sortMenuExpanded,
+                                    onDismissRequest = {
+                                        sortMenuExpanded = false
+                                    }
+                                ) {
+
+                                    /*DropdownMenuItem(
+                                        text = {
+                                            Text("Più recenti")
+                                        },
+                                        onClick = {
+                                            sortMode = "recent"
+                                            sortMenuExpanded = false
+                                        }
+                                    )
+*/
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("Più spam rilevati")
+                                        },
+                                        onClick = {
+                                            sortMode = "spam"
+                                            sortMenuExpanded = false
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("0-9")
+                                               },
+                                        onClick = {
+                                            sortMode = "numeric"
+                                            sortMenuExpanded = false
+                                        }
+                                    )
                                 }
                             }
-                        ) {
-
-                            Icon(
-                                Icons.Default.Search,
-                                null
-                            )
                         }
                     }
 
@@ -566,11 +736,62 @@ fun PrefixBlockerApp(context: Context) {
 
                     Spacer(Modifier.height(14.dp))
 
-                    val filteredPrefixes = prefixes.filter {
-                        it.contains(searchText)
-                    }
+                    val filteredPrefixes = (
+                            prefixes?.filter {
+                                it.contains(searchText)
+                            } ?: emptyList()
+                            ).let { list ->
 
-                    if (filteredPrefixes.isEmpty()) {
+                            when (sortMode) {
+
+                                /*"recent" -> {
+                                    if (sortDescending)
+                                        list.reversed()
+                                    else
+                                        list
+                                }*/
+
+                                "spam" -> {
+
+                                    val sorted = list.sortedBy {
+                                        attemptsMap[it] ?: 0
+                                    }
+
+                                    if (sortDescending)
+                                        sorted.reversed()
+                                    else
+                                        sorted
+                                }
+
+                                "numeric" -> {
+
+                                    val sorted = list.sorted()
+
+                                    if (sortDescending)
+                                        sorted
+                                    else
+                                        sorted.reversed()
+                                }
+
+                                else -> list
+                            }
+                        }
+
+                    if (prefixes == null) {
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 40.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+
+                            CircularProgressIndicator(
+                                color = Color(0xFF8B5CF6)
+                            )
+                        }
+
+                    } else if (filteredPrefixes.isEmpty()) {
 
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -703,10 +924,20 @@ fun PrefixBlockerApp(context: Context) {
                                                             Color.Black
                                                 )
 
+                                                val attempts = attemptsMap[prefix] ?: 0
+
+                                                val attemptsColor =
+                                                    when {
+                                                        attempts == 0 -> Color(0xFF22C55E)
+                                                        attempts <= 15 -> Color(0xFFF59E0B)
+                                                        else -> Color(0xFFEF4444)
+                                                    }
+
                                                 Text(
-                                                    "Blocco attivo",
+                                                    text = "N. tentativi: $attempts",
                                                     fontSize = 13.sp,
-                                                    color = Color.Gray
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = attemptsColor
                                                 )
                                             }
                                         }
