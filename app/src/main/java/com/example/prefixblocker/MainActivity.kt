@@ -42,6 +42,7 @@ import android.provider.CallLog
 import android.provider.ContactsContract
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.text.style.TextOverflow
 
 // ---------------- DATA ----------------
 
@@ -163,6 +164,16 @@ fun PrefixBlockerApp(context: Context) {
         mutableStateOf(systemDark)
     }
 
+    val prefs = remember {
+        context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    }
+
+    var blockInternational by remember {
+        mutableStateOf(
+            prefs.getBoolean("block_international", false)
+        )
+    }
+
     val snackbarHostState = remember {
         SnackbarHostState()
     }
@@ -267,10 +278,25 @@ fun PrefixBlockerApp(context: Context) {
                         ?: continue
 
                 // rimuove prefissi internazionali
+                // numero internazionale NON italiano
+                val isForeignInternational =
+                    (
+                            number.startsWith("00") &&
+                                    !number.startsWith("0039")
+                            )
+
+// modalità Italia:
+// ignora solo esteri veri
+                if (!blockInternational && isForeignInternational) {
+                    continue
+                }
+
+// normalizzazione Italia
                 if (number.startsWith("39") && number.length > 10) {
                     number = number.removePrefix("39")
                 }
 
+// normalizzazione internazionale
                 if (number.startsWith("00")) {
                     number = number.drop(2)
                 }
@@ -393,10 +419,10 @@ fun PrefixBlockerApp(context: Context) {
                         Column {
 
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.fillMaxWidth()
+                                Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically
                             ) {
+
+                                // TITOLO
 
                                 Text(
                                     "PrefixBlocker",
@@ -405,21 +431,59 @@ fun PrefixBlockerApp(context: Context) {
                                     fontWeight = FontWeight.ExtraBold
                                 )
 
-                                IconButton(
-                                    onClick = {
-                                        isDark = !isDark
-                                    }
+                                // ICONE DESTRA
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
 
-                                    Icon(
-                                        imageVector =
-                                            if (isDark)
-                                                Icons.Default.LightMode
-                                            else
-                                                Icons.Default.DarkMode,
-                                        contentDescription = null,
-                                        tint = Color.White
-                                    )
+                                    // ITALIA / GLOBALE
+
+                                    TextButton(
+                                        onClick = {
+
+                                            blockInternational = !blockInternational
+
+                                            prefs.edit()
+                                                .putBoolean(
+                                                    "block_international",
+                                                    blockInternational
+                                                )
+                                                .apply()
+                                        }
+                                    ) {
+
+                                        Text(
+                                            text =
+                                                if (blockInternational)
+                                                    "🌍"
+                                                else
+                                                    "🇮🇹",
+
+                                            fontSize = 22.sp
+                                        )
+                                    }
+
+                                    // DARK MODE
+
+                                    IconButton(
+                                        onClick = {
+                                            isDark = !isDark
+                                        }
+                                    ) {
+
+                                        Icon(
+                                            imageVector =
+                                                if (isDark)
+                                                    Icons.Default.LightMode
+                                                else
+                                                    Icons.Default.DarkMode,
+
+                                            contentDescription = null,
+
+                                            tint = Color.White
+                                        )
+                                    }
                                 }
                             }
 
@@ -429,6 +493,22 @@ fun PrefixBlockerApp(context: Context) {
                                 "Blocca automaticamente le chiamate spam usando prefissi personalizzati.",
                                 color = Color(0xFFE2E8F0),
                                 fontSize = 15.sp
+                            )
+
+                            Spacer(Modifier.height(6.dp))
+
+                            Text(
+                                text =
+                                    if (blockInternational)
+                                        "Protezione globale attiva"
+                                    else
+                                        "Protezione Italia attiva",
+
+                                color = Color.White.copy(0.85f),
+
+                                fontSize = 13.sp,
+
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
@@ -1012,13 +1092,17 @@ fun PrefixBlockerApp(context: Context) {
                             ) {
 
                                 Text(
-                                    text =
-                                        call.name ?: call.number,
+                                    text = call.name ?: call.number,
 
-                                    fontWeight =
-                                        FontWeight.Bold,
+                                    fontWeight = FontWeight.Bold,
 
                                     fontSize = 17.sp,
+
+                                    maxLines = 1,
+
+                                    overflow = TextOverflow.Ellipsis,
+
+                                    modifier = Modifier.weight(1f),
 
                                     color =
                                         if (isDark)
